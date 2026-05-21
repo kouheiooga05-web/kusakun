@@ -17,10 +17,25 @@ public class TPSCameraController : MonoBehaviour
     public float minDistance = 2f;
     public float maxDistance = 15f;
 
+    [SerializeField, Header("初期ズーム距離")]
+    private float defaultDistance = 8f;
+
     private float currentDistance = 10f; // 初期距離
 
     private float rotationX = 0f;
     private float rotationY = 0f;
+
+    void Start()
+    {
+        // 初期距離を、設定した「defaultDistance」の範囲内に収めて適用
+        currentDistance = Mathf.Clamp(defaultDistance, minDistance, maxDistance);
+
+        if (cameraTransform != null)
+        {
+            // ゲーム開始時に、指定された初期距離のポジションにカメラを配置する
+            cameraTransform.localPosition = new Vector3(0, cameraTransform.localPosition.y, -currentDistance);
+        }
+    }
 
 
     void Update()
