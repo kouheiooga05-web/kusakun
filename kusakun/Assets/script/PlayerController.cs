@@ -3,6 +3,8 @@ using UnityEngine.UI;
 
 public class PlayerController : MonoBehaviour
 {
+
+    //=====初期設定=====
     [SerializeField, Header("移動速度")]
     public float moveSpeed ;
     private CharacterController controller;
@@ -15,13 +17,35 @@ public class PlayerController : MonoBehaviour
     private float verticalVelocity = 0f;
     private readonly float gravity = 9.81f;
 
-    [Header("水分ステータス")]
-    public float currentWater = 0f;       // 現在の水分量
+    [SerializeField, Header("水分ステータス")]
+    public float currentWater;       // 現在の水分量
+
     public float maxWater = 100f;        // 最大水分量
     public Slider waterSlider;
 
+    public GameObject uiCanvas; // UI陽の設定
+    //========================================================
+
+
+    // ======== 案1：水分消費＆休眠システム用の追加変数 ========
+    [Header("サバイバル設定")]
+    [SerializeField, Header("1秒間あたりの水分自然減少量")]
+    private float waterDrainPerSecond = 2f;
+
+    [SerializeField, Header("休眠からの自動復活時間(秒)")]
+    private float recoveryTime = 20f;
+
+    [SerializeField, Header("クリック連打時の1クリックあたりの水分回復量")]
+    private float recoveryAmountPerClick = 1.5f;
+
+    private bool isSleeping = false;      // 休眠状態フラグ
+    private float sleepTimer = 0f;        // 休眠時間の計測用
+    // ========================================================
+
+
     void Start()
-    {
+    { 
+
         controller = GetComponent<CharacterController>();
         // 最初は自分の位置を目標地点にしておく
         targetPosition = transform.position;
@@ -31,21 +55,45 @@ public class PlayerController : MonoBehaviour
             waterSlider.maxValue = maxWater;
             waterSlider.value = currentWater;
         }
+        if (uiCanvas != null){ uiCanvas.SetActive(false);}
     }
 
     void Update()
     {
-        // 1. マウス左クリックを検知
-        if (Input.GetMouseButtonDown(0))
+
+        if (isSleeping)
         {
-            mousePressPos = Input.mousePosition;
+            HandleRecovery();
+            return; // 休眠中は以下の移動や通常の水分減少処理をすべてスキップする
         }
 
-        if (Input.GetMouseButtonUp(0))
+        if (UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())//UIと移動の重複防止
         {
-            if (Vector3.Distance(mousePressPos, Input.mousePosition) < 10f)
+            // 移動自体は継続させるが、新しい目的地の上書きは防ぐためにここでReturnはせず、
+            // 下のマウス入力だけを制限する形にします。
+        }
+        else
+        {
+            // 1. マウス左クリックを検知、目的地設定
+            if (Input.GetMouseButtonDown(0)) { mousePressPos = Input.mousePosition; }
+            if (Input.GetMouseButtonUp(0))
             {
-                SetTargetPosition();
+                if (Vector3.Distance(mousePressPos, Input.mousePosition) < 10f) { SetTargetPosition(); }
+            }
+        }
+
+        
+        if (currentWater > 0f)
+        {
+            currentWater -= waterDrainPerSecond * Time.deltaTime;
+            currentWater = Mathf.Max(currentWater, 0f); // 0未満にならないように固定
+
+            if (waterSlider != null) waterSlider.value = currentWater;
+
+            // 水分が0になった瞬間に休眠状態へ突入
+            if (currentWater <= 0f)
+            {
+                EnterSleepMode();
             }
         }
 
@@ -53,18 +101,88 @@ public class PlayerController : MonoBehaviour
         MoveToTarget();
     }
 
-    public void AbsorbWater(float amount)//水分量の管理
+    // ======== 水分を吸収する公開メソッド（水たまり用） ========
+    public void AbsorbWater(float amount)
     {
-        // 水分を増加させ、最大値(maxWater)を超えないように制限する
-        currentWater = Mathf.Clamp(currentWater + amount, 0f, maxWater);
+        // 休眠中は水たまりにいても吸水できない（復活してから吸水させるため）
+        if (isSleeping) return;
 
-        // UIのメーターに反映
-        if (waterSlider != null)
+        currentWater = Mathf.Clamp(currentWater + amount, 0f, maxWater);
+        if (waterSlider != null) waterSlider.value = currentWater;
+        Debug.Log($"水を吸収中！ 現在の水分量: {currentWater}");
+    }
+
+    public bool UseWater(float amount)
+    {
+        if (currentWater < amount || isSleeping)
         {
-            waterSlider.value = currentWater;
+            Debug.Log("水分が足りないか、休眠中のため水をあげられません！");
+            return false;
         }
 
-        Debug.Log($"水を吸収中！ 現在の水分量: {currentWater}");
+        currentWater -= amount;
+        if (waterSlider != null) waterSlider.value = currentWater;
+
+        if (currentWater <= 0f)
+        {
+            EnterSleepMode();
+        }
+
+        return true;
+    }
+
+    private void EnterSleepMode()
+    {
+        isSleeping = true;
+        isMoving = false; // 移動を強制停止
+        sleepTimer = 0f;
+        Debug.Log("【休眠】水分が尽きました。草君が丸まっています…（クリック連打か時間経過で復活）");
+
+        if (uiCanvas != null)
+        {
+            uiCanvas.SetActive(true);
+
+            Button btn = uiCanvas.GetComponentInChildren<Button>();
+            if (btn != null)
+            {
+                btn.onClick.RemoveAllListeners(); // 二重登録防止
+                btn.onClick.AddListener(OnrecoveryButtonClick);
+            }
+
+        }
+
+        // 【演出用】ここに「丸まるアニメーション」を再生するトリガーなどを将来入れます
+    }
+
+    private void OnrecoveryButtonClick()
+    {
+        currentWater += recoveryAmountPerClick;
+        if (waterSlider != null) waterSlider.value = currentWater;
+
+        Debug.Log($"【ボタン連打復活中】現在の水分: {currentWater}");
+    }
+
+    private void HandleRecovery()
+    {
+        // 1. 時間経過による緩やかなリカバリ
+        sleepTimer += Time.deltaTime;
+
+
+        // 復活条件：一定時間耐えるか、連打で水分がわずか（例: 10以上）に回復したら
+        if (sleepTimer >= recoveryTime || currentWater >= 10f)
+        {
+            isSleeping = false;
+            // 復活時は最低限動けるように、水分が0なら少しだけ（5Lほど）ボーナスをあげる
+            if (currentWater < 5f) currentWater = 5f;
+            if (waterSlider != null) waterSlider.value = currentWater;
+
+            // 目的地を今いる場所にリセット（勝手に歩き出さないように）
+            targetPosition = transform.position;
+
+            if (uiCanvas != null) uiCanvas.SetActive(false);
+
+            Debug.Log("【復活！】草君がシャキーンと起き上がりました！");
+        }
     }
 
     void SetTargetPosition() //現状のコードだとスクリプトの衝突が良そう
@@ -141,4 +259,5 @@ public class PlayerController : MonoBehaviour
 
         // transform.LookAt(targetPosition);  
     }
+
 }
