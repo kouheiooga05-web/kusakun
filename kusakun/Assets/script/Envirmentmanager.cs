@@ -2,102 +2,193 @@ using UnityEngine;
 
 public class GreeningManager : MonoBehaviour
 {
-    public Terrain terrain;
-    [Range(0, 1)] public float globalGreening = 0f;
+    public static GreeningManager Instance { get; private set; }
 
-    public enum LandscapeTier { Desert, Savanna, Grassland, Grove, Forest }
-    public LandscapeTier currentTier = LandscapeTier.Desert;
-
-    [Header("環境設定：色とエフェクト")]
-    public Color desertFogColor = new Color(0.8f, 0.7f, 0.5f);
-    public Color savannaFogColor = new Color(0.7f, 0.8f, 0.6f);
-    public Color forestFogColor = new Color(0.4f, 0.6f, 0.5f);
-
-    public GameObject sandStormEffect; // 砂嵐のパーティクルなど
-    public GameObject forestLeafEffect; // 落ち葉のパーティクルなど
-
-    private TerrainData terrainData;
-    private float[,,] defaultAlphamaps;
-
-    void Start()
+    [System.Serializable]
+    public enum EnvironmentStage
     {
-        if (terrain == null) terrain = Terrain.activeTerrain;
-        terrainData = terrain.terrainData;
-
-        // 初期状態を保存
-        defaultAlphamaps = terrainData.GetAlphamaps(0, 0, terrainData.alphamapWidth, terrainData.alphamapHeight);
-
-        // 初期の霧を有効にする設定
-        RenderSettings.fog = true;
-        RenderSettings.fogMode = FogMode.ExponentialSquared;
+        Desert,   // 0: 砂漠
+        Savanna,  // 1: サバンナ
+        Grassland,// 2: 草原
+        Grove,    // 3: 林
+        Forest    // 4: 森
     }
 
-    void Update()
+    [Header("環境ステータス")]
+    public EnvironmentStage currentStage = EnvironmentStage.Desert;
+
+    [Header("救出カウント")]
+    public int rescuedCountInCurrentStage = 0; // 現在の階層での救出数
+    public int totalRescuedCount = 0;          // ゲーム全体の総救出数
+
+    [Header("次の階層へ進むために必要な救出しきい値")]
+    [SerializeField] private int requiredRescueForSavanna = 2;   // 砂漠→サバンナに必要な数
+    [SerializeField] private int requiredRescueForGrassland = 3; // サバンナ→草原に必要な数
+    [SerializeField] private int requiredRescueForGrove = 5;     // 草原→林に必要な数
+    [SerializeField] private int requiredRescueForForest = 8;    // 林→森に必要な数
+
+    [Header("対象のTerrain（地面の高さを取る用）")]
+    public Terrain targetTerrain;
+
+    [Header("生成する植物のPrefab設定")]
+    // インスペクターで、生やしたい3Dの草や2Dビルボード草のPrefabをセットする
+    [SerializeField] private GameObject lowGrassPrefab;  // 背の低い草（サバンナ・草原用）
+    [SerializeField] private GameObject tallGrassPrefab; // 背の高い草・花（草原・林用）
+    [SerializeField] private GameObject bushPrefab;      // 低木・茂み（林・森用）
+
+    void Awake()
     {
-        // 開発中のデバッグ用：インスペクターのglobalGreeningで色が変わるようにする
-        UpdateGreening(globalGreening);
+        if (Instance == null) { Instance = this; }
+        else { Destroy(gameObject); }
     }
 
-    public void UpdateGreening(float percent)
+    /// <summary>
+    /// 枯草が救出されたら、WitheredGrassから必ず呼び出される関数
+    /// </summary>
+    public void OnGrassRescued(Vector3 eventPosition)
     {
-        int width = terrainData.alphamapWidth;
-        int height = terrainData.alphamapHeight;
-        float[,,] maps = terrainData.GetAlphamaps(0, 0, width, height);
+        rescuedCountInCurrentStage++;
+        totalRescuedCount++;
 
-        for (int y = 0; y < height; y++)
+        Debug.Log($"[救出報告] 仲間が救われました！ 現在の階層での救出数: {rescuedCountInCurrentStage}");
+
+        // 1. まずは、救出した仲間の周りにその階層に応じた植物をポコポコ生やす（アプローチA）
+        SpawnPlantsAtEvent(eventPosition);
+
+        // 2. 救出数が目標に達しているかチェックし、達していれば環境をアップグレードする
+        CheckStageProgression(eventPosition);
+    }
+
+    /// <summary>
+    /// 救出数に応じて環境の階層（ステージ）を進めるか判定する
+    /// </summary>
+    private void CheckStageProgression(Vector3 lastEventPos)
+    {
+        bool didAdvance = false;
+
+        switch (currentStage)
         {
-            for (int x = 0; x < width; x++)
-            {
-                // レイヤー0 (砂) 
-                maps[y, x, 0] = 1f - percent;
-                // レイヤー1 (草) 
-                if (maps.GetLength(2) > 1) // レイヤーが2つ以上あるかチェック
+            case EnvironmentStage.Desert:
+                if (rescuedCountInCurrentStage >= requiredRescueForSavanna)
                 {
-                    maps[y, x, 1] = percent;
+                    currentStage = EnvironmentStage.Savanna;
+                    didAdvance = true;
                 }
-            }
+                break;
+
+            case EnvironmentStage.Savanna:
+                if (rescuedCountInCurrentStage >= requiredRescueForGrassland)
+                {
+                    currentStage = EnvironmentStage.Grassland;
+                    didAdvance = true;
+                }
+                break;
+
+            case EnvironmentStage.Grassland:
+                if (rescuedCountInCurrentStage >= requiredRescueForGrove)
+                {
+                    currentStage = EnvironmentStage.Grove;
+                    didAdvance = true;
+                }
+                break;
+
+            case EnvironmentStage.Grove:
+                if (rescuedCountInCurrentStage >= requiredRescueForForest)
+                {
+                    currentStage = EnvironmentStage.Forest;
+                    didAdvance = true;
+                }
+                break;
+
+            case EnvironmentStage.Forest:
+                // すでに最終形態の「森」
+                break;
         }
-        terrainData.SetAlphamaps(0, 0, maps);
-    }
 
-    public void SetLandscapeTier(LandscapeTier nextTier)
-    {
-        currentTier = nextTier;
-
-        switch (currentTier)
+        if (didAdvance)
         {
-            case LandscapeTier.Desert:
-                SetEnvironment(1.0f, desertFogColor, sandStormEffect);
-                break;
-            case LandscapeTier.Savanna:
-                SetEnvironment(0.4f, savannaFogColor, null);
-                break;
-            case LandscapeTier.Forest:
-                SetEnvironment(1.0f, forestFogColor, forestLeafEffect);
-                break;
+            // 階層が上がったので、現在の階層でのカウントをリセット
+            rescuedCountInCurrentStage = 0;
+
+            Debug.Log($"<color=green>【環境進化！】世界が次のフェーズに移りました。現在の環境: {currentStage}</color>");
+
+            // 地面のテクスチャを大きく変える処理などをここで連動
+            ApplyTerrainTextureChange();
         }
     }
 
-    // メソッドの定義はクラス直下（SetLandscapeTierの外）に置く
-    private void SetEnvironment(float greenPercent, Color fogColor, GameObject effect)
+    /// <summary>
+    /// 救出地点の周りに、現在の環境レベルに合わせた植物Prefabをランダム生成する
+    /// </summary>
+    private void SpawnPlantsAtEvent(Vector3 centerPos)
     {
-        // 地面のテクスチャ更新
-        globalGreening = greenPercent;
-        UpdateGreening(greenPercent);
+        int spawnCount = 0;
+        float radius = 3f;
+        GameObject prefabToSpawn = null;
 
-        // 霧の色の変更
-        RenderSettings.fogColor = fogColor;
+        // 現在のステージに応じて、生やす草の種類と量を変える
+        switch (currentStage)
+        {
+            case EnvironmentStage.Desert:
+                spawnCount = 5;
+                radius = 2f;
+                prefabToSpawn = lowGrassPrefab; // 砂漠ではまだショボショボした草
+                break;
 
-        // パーティクルの制御（砂嵐を止めたり落ち葉を出したり）
-        if (sandStormEffect != null) sandStormEffect.SetActive(currentTier == LandscapeTier.Desert);
-        if (forestLeafEffect != null) forestLeafEffect.SetActive(currentTier == LandscapeTier.Forest);
+            case EnvironmentStage.Savanna:
+                spawnCount = 10;
+                radius = 4f;
+                prefabToSpawn = lowGrassPrefab;
+                break;
 
-        if (effect != null) effect.SetActive(true);
+            case EnvironmentStage.Grassland:
+                spawnCount = 15;
+                radius = 5f;
+                prefabToSpawn = tallGrassPrefab; // 草原からは背の高い草や花が混じる
+                break;
+
+            case EnvironmentStage.Grove:
+                spawnCount = 20;
+                radius = 6f;
+                prefabToSpawn = bushPrefab; // 林からは茂みなども発生
+                break;
+
+            case EnvironmentStage.Forest:
+                spawnCount = 30;
+                radius = 8f;
+                prefabToSpawn = bushPrefab;
+                break;
+        }
+
+        if (prefabToSpawn == null) return;
+
+        // 指定数だけPrefabをクローン生成
+        for (int i = 0; i < spawnCount; i++)
+        {
+            Vector2 randomCircle = Random.insideUnitCircle * radius;
+            Vector3 spawnPos = centerPos + new Vector3(randomCircle.x, 0f, randomCircle.y);
+
+            // Terrainの正確な高さを取得して合わせる
+            if (targetTerrain != null)
+            {
+                spawnPos.y = targetTerrain.SampleHeight(spawnPos) + targetTerrain.transform.position.y;
+            }
+
+            // ランダムなY軸回転を与えて自然な見た目にする
+            Quaternion randomRot = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+
+            // 生成！
+            Instantiate(prefabToSpawn, spawnPos, randomRot);
+        }
     }
 
-    void OnApplicationQuit()
+    /// <summary>
+    /// 環境が切り替わったときにTerrainの見た目（全体）に変化を与える（仮実装）
+    /// </summary>
+    private void ApplyTerrainTextureChange()
     {
-        // 終了時にテクスチャを元に戻す
-        terrainData.SetAlphamaps(0, 0, defaultAlphamaps);
+        // ここにTerrainのAlphamapを変更するコード、
+        // または環境の「空（Skybox）」や「環境光」を変える処理を入れると一気に豪華になります！
+        Debug.Log($"[見た目変化] 地面が {currentStage} のテクスチャに書き換わりました。");
     }
 }

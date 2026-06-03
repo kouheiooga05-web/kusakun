@@ -1138,14 +1138,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 711cfba7dcceba74c925d742141379de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::EnvironmentManager
-  terrain: {fileID: 177022384}
-  globalGreening: 0
-  currentTier: 0
-  desertFogColor: {r: 0.8, g: 0.7, b: 0.5, a: 1}
-  savannaFogColor: {r: 0.7, g: 0.8, b: 0.6, a: 1}
-  forestFogColor: {r: 0.4, g: 0.6, b: 0.5, a: 1}
-  sandStormEffect: {fileID: 0}
-  forestLeafEffect: {fileID: 0}
+  currentStage: 0
+  rescuedCountInCurrentStage: 0
+  totalRescuedCount: 0
+  requiredRescueForSavanna: 2
+  requiredRescueForGrassland: 3
+  requiredRescueForGrove: 5
+  requiredRescueForForest: 8
+  targetTerrain: {fileID: 177022384}
+  lowGrassPrefab: {fileID: 7488343770391138834, guid: d269f456157d06948a7ff3854fe78119, type: 3}
+  tallGrassPrefab: {fileID: 7488343770391138834, guid: d269f456157d06948a7ff3854fe78119, type: 3}
+  bushPrefab: {fileID: 3419883363128097502, guid: ee761a3475b476040a2a6844b77eb15a, type: 3}
 --- !u!4 &995656220
 Transform:
   m_ObjectHideFlags: 0
@@ -2157,7 +2160,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerController
   moveSpeed: 5
-  currentWater: 0
+  currentWater: 50
   maxWater: 100
   waterSlider: {fileID: 36231266}
   uiCanvas: {fileID: 1113094870}

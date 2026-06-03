@@ -135,6 +135,11 @@ public class WitheredGrass : MonoBehaviour
             spriteRenderer.sprite = greenGrassSprite;
         }
 
+        if (GreeningManager.Instance != null)
+        {
+            GreeningManager.Instance.OnGrassRescued(transform.position);
+        }
+
         // 3. 「Water」タグが付いた水たまりの座標を探して記憶する
         GameObject waterObj = GameObject.FindWithTag("Water");
         if (waterObj != null)
